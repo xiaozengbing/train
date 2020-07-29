@@ -1,9 +1,11 @@
-﻿//非Unix系统
-#if defined(_MSC_VER) || defined(__MINGW32__) || defined(WIN32)
-#include <WinSock2.h>
+﻿#include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <windows.h>
+#include <iostream>
+#include <string>
+
 #define close closesocket
+using namespace std;
 
 class WinSockInit
 {
@@ -12,7 +14,6 @@ public:
     WinSockInit()
     {  //分配套接字版本信息2.0，WSADATA变量地址
         WSAStartup(MAKEWORD(2, 0), &_wsa);
-
     }
     ~WinSockInit()
     {
@@ -20,23 +21,6 @@ public:
     }
 };
 
-//Unix系统
-#else
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#endif
-
-
-
-
-#include <iostream>
-#include <string>
-using namespace std;
-
-//处理URL
 void UrlRouter(int clientSock, string const& url)
 {
     string hint;
@@ -61,11 +45,37 @@ void UrlRouter(int clientSock, string const& url)
 
 }
 
+void do_client(int clientSock) {
+    // 收请求
+    string requestStr;
+    int bufSize = 4096;
+    requestStr.resize(bufSize);
+    //接受数据
+    recv(clientSock, &requestStr[0], bufSize, 0);
+
+    //取得第一行
+    string firstLine = requestStr.substr(0, requestStr.find("\r\n"));
+    //取得URL
+    firstLine = firstLine.substr(firstLine.find(" ") + 1);//substr，复制函数，参数为起始位置（默认0），复制的字符数目
+    string url = firstLine.substr(0, firstLine.find(" "));//find返回找到的第一个匹配字符串的位置，而不管其后是否还有相匹配的字符串。
+
+    //发送响应头
+    string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/html; charset=gbk\r\n"
+        "Connection: close\r\n"
+        "\r\n";
+    send(clientSock, response.c_str(), response.length(), 0);
+    //处理URL
+    UrlRouter(clientSock, url);
+
+    close(clientSock);//关闭客户端套接字
+}
+
+
 int main()
 {
-#if defined(_MSC_VER) || defined(__MINGW32__) || defined(WIN32)
-    WinSockInit socklibInit;//如果为Windows系统，进行WSAStartup
-#endif
+    WinSockInit socklibInit;
 
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);//建立套接字，失败返回-1
     sockaddr_in addr = { 0 };
@@ -85,30 +95,7 @@ int main()
     //接受客户端请求
     while (-1 != (clientSock = accept(sock, (sockaddr*)&clientAddr, (socklen_t*)&clientAddrSize)))
     {
-        // 收请求
-        string requestStr;
-        int bufSize = 4096;
-        requestStr.resize(bufSize);
-        //接受数据
-        recv(clientSock, &requestStr[0], bufSize, 0);
-
-        //取得第一行
-        string firstLine = requestStr.substr(0, requestStr.find("\r\n"));
-        //取得URL
-        firstLine = firstLine.substr(firstLine.find(" ") + 1);//substr，复制函数，参数为起始位置（默认0），复制的字符数目
-        string url = firstLine.substr(0, firstLine.find(" "));//find返回找到的第一个匹配字符串的位置，而不管其后是否还有相匹配的字符串。
-
-        //发送响应头
-        string response =
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/html; charset=gbk\r\n"
-            "Connection: close\r\n"
-            "\r\n";
-        send(clientSock, response.c_str(), response.length(), 0);
-        //处理URL
-        UrlRouter(clientSock, url);
-
-        close(clientSock);//关闭客户端套接字
+        do_client(clientSock);       
     }
 
     close(sock);//关闭服务器套接字
